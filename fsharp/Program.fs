@@ -50,13 +50,15 @@ let tagPosts = Dictionary(tagPostsTmp.Count)
 for kv in tagPostsTmp do
     tagPosts[kv.Key] <- kv.Value.ToArray()
 
+[<Literal>]
 let topN = 5
 
 let allRelatedPosts: RelatedPosts[] =
     posts
     |> Array.mapi (fun postId post ->
         let taggedPostCount = stackalloc posts.Length
-        let top5 = stackalloc (topN * 2) // flattened list of (count, id)
+        let top5TagCounts = stackalloc topN
+        let top5Posts = Array.zeroCreate topN
 
         for tagId in post.tags do
             for relatedPostId in tagPosts[tagId] do
@@ -64,35 +66,34 @@ let allRelatedPosts: RelatedPosts[] =
 
         taggedPostCount[postId] <- 0 // ignore self
 
-        let mutable minTags = 0
+        for relatedPostId in 0 .. taggedPostCount.Length - 1 do
+            let relatedPostTagCount = taggedPostCount[relatedPostId]
 
-        // custom priority queue to find topN
-        for i in 0 .. taggedPostCount.Length - 1 do
-            let count = taggedPostCount[i]
+            // Check that this Post is in the Top 5 Counts
+            if relatedPostTagCount > top5TagCounts[4] then
 
-            if count > minTags then
-                // Find upper bound: pos at which count is larger than current one.
-                let mutable upperBound = (topN - 2) * 2
+                // Find the insertion point for the new Post
+                let mutable insertionPoint = 5
 
-                while upperBound >= 0 && count > top5[upperBound] do
-                    top5[upperBound + 2] <- top5[upperBound]
-                    top5[upperBound + 3] <- top5[upperBound + 1]
-                    upperBound <- upperBound - 2
+                while insertionPoint > 0 &&
+                      relatedPostTagCount > top5TagCounts[insertionPoint - 1] do
+                        insertionPoint <- insertionPoint - 1
 
-                let insertionPos = upperBound + 2
-                top5[insertionPos] <- count
-                top5[insertionPos + 1] <- i
+                // Shuffle posts down
+                let mutable shuffleIndex = 4
 
-                minTags <- top5[topN * 2 - 2]
+                while shuffleIndex < insertionPoint do
+                    top5TagCounts[shuffleIndex] <- top5TagCounts[shuffleIndex - 1]
+                    top5Posts[shuffleIndex] <- top5Posts[shuffleIndex - 1]
+                    shuffleIndex <- shuffleIndex - 1
 
-        let related = Array.zeroCreate topN
+                top5TagCounts[insertionPoint] <- relatedPostTagCount
+                top5Posts[insertionPoint] <- posts[relatedPostId]
 
-        for i in 0 .. related.Length - 1 do
-            related[i] <- posts[top5[i * 2 + 1]]
 
         { _id = post._id
           tags = post.tags
-          related = related }
+          related = top5Posts }
 
     )
 
