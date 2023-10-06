@@ -67,7 +67,8 @@ let allRelatedPosts : RelatedPosts[] =
     posts
     |> Array.mapi (fun postId post ->
 
-        let taggedPostCount = stackalloc posts.Length
+        // Ensure that the array of counts is a multiple of the Vector length
+        let taggedPostCount = stackalloc (((posts.Length + Vector256<byte>.Count - 1) >>> 3) * Vector256<byte>.Count)
         let mutable top5TagCounts = Vector256.Create 0
         let mutable top5PostIds = Vector256.Create 0
 
@@ -77,29 +78,45 @@ let allRelatedPosts : RelatedPosts[] =
 
         taggedPostCount[postId] <- 0uy // ignore self
 
-        let mutable minTagCount = 0uy
+        let mutable minTagCount = Vector256.Create 0uy
 
-        for relatedPostId in 0 .. taggedPostCount.Length - 1 do
-            let relatedPostTagCount = taggedPostCount[relatedPostId]
+        let mutable i = 0
 
-            if relatedPostTagCount > minTagCount then
+        while i < taggedPostCount.Length do
+            let relatedPostsTagCountsSpan = taggedPostCount.Slice(i, Vector256<byte>.Count)
+            let mutable relatedPostsTagCountsVec = Vector256.Create<byte> relatedPostsTagCountsSpan
 
-                let relatedPostTagCountVec = Vector256.Create (int relatedPostTagCount)
+            let comparison = Vector256.GreaterThan (relatedPostsTagCountsVec, minTagCount)
+            let moveMask = Vector256.ExtractMostSignificantBits comparison
+            let mutable indexOfNewPostId = (BitOperations.TrailingZeroCount moveMask)
 
+            while indexOfNewPostId < Vector256<byte>.Count do
+                let relatedPostId = i + indexOfNewPostId
+                let relatedPostTagCount = int relatedPostsTagCountsSpan[indexOfNewPostId]
+                let relatedPostTagCountVec = Vector256.Create relatedPostTagCount
+
+                // Find where we need to insert the new Post
                 let comparison = Vector256.GreaterThan (relatedPostTagCountVec, top5TagCounts)
                 let moveMask = Vector256.ExtractMostSignificantBits comparison
                 let indexOfInsertPoint = (BitOperations.TrailingZeroCount moveMask)
                 let shuffle = shuffles[indexOfInsertPoint]
 
-                // Insert new Post
-                top5TagCounts <- top5TagCounts.WithElement (5, int relatedPostTagCount)
+                // Insert new Post and Count
+                top5TagCounts <- top5TagCounts.WithElement (5, int relatedPostsTagCountsSpan[indexOfNewPostId])
                 top5PostIds <- top5PostIds.WithElement (5, relatedPostId)
 
-                // Shuffle the values down
+                // Shuffle the elements to the correct order
                 top5TagCounts <- Vector256.Shuffle (top5TagCounts, shuffle)
                 top5PostIds <- Vector256.Shuffle (top5PostIds, shuffle)
 
-                minTagCount <- byte (top5TagCounts.GetElement 4)
+                // Clear the count for the Post we just added
+                relatedPostsTagCountsVec <- relatedPostsTagCountsVec.WithElement (indexOfNewPostId, 0uy)
+                minTagCount <- Vector256.Create (byte top5TagCounts[4])
+                let comparison = Vector256.GreaterThan (relatedPostsTagCountsVec, minTagCount)
+                let moveMask = Vector256.ExtractMostSignificantBits comparison
+                indexOfNewPostId <- (BitOperations.TrailingZeroCount moveMask)
+
+            i <- i + Vector256<byte>.Count
 
 
         let top5Posts = Array.zeroCreate topN
