@@ -1,5 +1,8 @@
 ﻿open System
 open System.IO
+open System.Numerics
+open System.Runtime.Intrinsics
+open System.Runtime.Intrinsics.X86
 open FSharp.NativeInterop
 open FSharp.Json
 open System.Collections.Generic
@@ -21,7 +24,7 @@ type Post =
 type RelatedPosts =
     { _id: string
       tags: string[]
-      related: Post[] }
+      mutable related: Post[] }
 
 let srcDir = __SOURCE_DIRECTORY__
 let posts = Json.deserialize<Post[]> (File.ReadAllText $"{srcDir}/../posts.json")
@@ -53,49 +56,90 @@ for kv in tagPostsTmp do
 [<Literal>]
 let topN = 5
 
-let allRelatedPosts: RelatedPosts[] =
+let allRelatedPosts =
     posts
-    |> Array.mapi (fun postId post ->
-        let taggedPostCount = stackalloc posts.Length
-        let top5TagCounts = stackalloc topN
-        let top5Posts = Array.zeroCreate topN
+    |> Array.map (fun post ->
+        {
+            _id = post._id
+            tags = post.tags
+            related = Array.empty
+        })
 
-        for tagId in post.tags do
-            for relatedPostId in tagPosts[tagId] do
-                taggedPostCount[relatedPostId] <- taggedPostCount[relatedPostId] + 1
+let taggedPostCount = Array.zeroCreate posts.Length
 
-        taggedPostCount[postId] <- 0 // ignore self
+let shuffles = [|
+    Vector256.Create (0, 0, 1, 2, 3, 4, 7, 7)
+    Vector256.Create (0, 0, 1, 2, 3, 4, 7, 7)
+    Vector256.Create (0, 1, 0, 2, 3, 4, 7, 7)
+    Vector256.Create (0, 1, 2, 0, 3, 4, 7, 7)
+    Vector256.Create (0, 1, 2, 3, 0, 4, 7, 7)
+    Vector256.Create (0, 1, 2, 3, 4, 0, 7, 7)
+|]
 
-        for relatedPostId in 0 .. taggedPostCount.Length - 1 do
-            let relatedPostTagCount = taggedPostCount[relatedPostId]
+for postId in 0..allRelatedPosts.Length - 1 do
+    let mutable post = &allRelatedPosts[postId]
+    let mutable top5TagCounts = Vector256.Create 0
+    let mutable top5PostIds = Vector256.Create 0
 
-            // Check that this Post is in the Top 5 Counts
-            if relatedPostTagCount > top5TagCounts[4] then
+    for tagId in post.tags do
+        for relatedPostId in tagPosts[tagId] do
+            taggedPostCount[relatedPostId] <- taggedPostCount[relatedPostId] + 1uy
 
-                // Find the insertion point for the new Post
-                let mutable insertionPoint = 5
+    taggedPostCount[postId] <- 0uy // ignore self
 
-                while insertionPoint > 0 &&
-                      relatedPostTagCount > top5TagCounts[insertionPoint - 1] do
-                        insertionPoint <- insertionPoint - 1
+    let mutable minTagCount = 0uy
 
-                // Shuffle posts down
-                let mutable shuffleIndex = 4
+    for relatedPostId in 0 .. taggedPostCount.Length - 1 do
+        let relatedPostTagCount = taggedPostCount[relatedPostId]
 
-                while shuffleIndex < insertionPoint do
-                    top5TagCounts[shuffleIndex] <- top5TagCounts[shuffleIndex - 1]
-                    top5Posts[shuffleIndex] <- top5Posts[shuffleIndex - 1]
-                    shuffleIndex <- shuffleIndex - 1
+        if relatedPostTagCount > minTagCount then
 
-                top5TagCounts[insertionPoint] <- relatedPostTagCount
-                top5Posts[insertionPoint] <- posts[relatedPostId]
+            let relatedPostTagCountVec = Vector256.Create (int relatedPostTagCount)
+            let comparison = Vector256.GreaterThan (relatedPostTagCountVec, top5TagCounts)
+            let moveMask = Vector256.ExtractMostSignificantBits comparison
+            let indexOfInsertPoint = (BitOperations.TrailingZeroCount moveMask)
+            let shuffle = shuffles[indexOfInsertPoint]
 
+            // Shuffle the values down
+            top5TagCounts <- Vector256.Shuffle (top5TagCounts, shuffle)
+            top5PostIds <- Vector256.Shuffle (top5PostIds, shuffle)
+            // Insert new Post
+            top5TagCounts <- top5TagCounts.WithElement (indexOfInsertPoint, int relatedPostTagCount)
+            top5PostIds <- top5PostIds.WithElement (indexOfInsertPoint, relatedPostId)
 
-        { _id = post._id
-          tags = post.tags
-          related = top5Posts }
+            minTagCount <- byte (top5TagCounts.GetElement 4)
 
-    )
+        // // Check that this Post is in the Top 5 Counts
+        // if relatedPostTagCount > top5TagCounts[4] then
+        //
+        //     // Find the insertion point for the new Post
+        //     let mutable insertionPoint = 4
+        //
+        //     while insertionPoint > 0 &&
+        //           relatedPostTagCount > top5TagCounts[insertionPoint - 1] do
+        //             insertionPoint <- insertionPoint - 1
+        //
+        //     // Shuffle posts down
+        //     let mutable shuffleIndex = 4
+        //
+        //     while shuffleIndex > insertionPoint do
+        //         top5TagCounts[shuffleIndex] <- top5TagCounts[shuffleIndex - 1]
+        //         top5PostIds[shuffleIndex] <- uint16 top5PostIds[shuffleIndex - 1]
+        //         shuffleIndex <- shuffleIndex - 1
+        //
+        //     top5TagCounts[insertionPoint] <- relatedPostTagCount
+        //     top5PostIds[insertionPoint] <- uint16 relatedPostId
+
+    let top5Posts = Array.zeroCreate topN
+
+    for i in 0..top5Posts.Length - 1 do
+        top5Posts[i] <- posts[top5PostIds[i]]
+
+    post.related <- top5Posts
+
+    for i in 0..taggedPostCount.Length - 1 do
+        taggedPostCount[i] <- 0uy
+
 
 
 stopwatch.Stop()
