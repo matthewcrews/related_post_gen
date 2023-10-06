@@ -87,10 +87,6 @@ let allRelatedPosts : RelatedPosts[] =
                 taggedPostCount[i] <- taggedPostCount[i] + 1uy
                 i <- i + 1
 
-            //
-            // for relatedPostId in tagPosts[tagId] do
-            //     taggedPostCount[relatedPostId] <- taggedPostCount[relatedPostId] + 1uy
-
         taggedPostCount[postId] <- 0uy // ignore self
 
         let mutable minTagCount = Vector256.Create 0uy
