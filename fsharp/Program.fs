@@ -56,27 +56,16 @@ for kv in tagPostsTmp do
 [<Literal>]
 let topN = 5
 
-let allRelatedPosts =
-    posts
-    |> Array.map (fun post ->
-        {
-            _id = post._id
-            tags = post.tags
-            related = Array.empty
-        })
-
-
 let shuffles = [|
-    Vector256.Create (0, 0, 1, 2, 3, 4, 7, 7)
-    Vector256.Create (0, 0, 1, 2, 3, 4, 7, 7)
-    Vector256.Create (0, 1, 0, 2, 3, 4, 7, 7)
-    Vector256.Create (0, 1, 2, 0, 3, 4, 7, 7)
-    Vector256.Create (0, 1, 2, 3, 0, 4, 7, 7)
-    Vector256.Create (0, 1, 2, 3, 4, 0, 7, 7)
+    Vector256.Create (6, 0, 1, 2, 3, 7, 7, 7)
+    Vector256.Create (0, 6, 1, 2, 3, 7, 7, 7)
+    Vector256.Create (0, 1, 6, 2, 3, 7, 7, 7)
+    Vector256.Create (0, 1, 2, 6, 3, 7, 7, 7)
+    Vector256.Create (0, 1, 2, 3, 6, 7, 7, 7)
 |]
 
 
-let relatedPosts : RelatedPosts[] =
+let allRelatedPosts : RelatedPosts[] =
     posts
     |> Array.mapi (fun postId post ->
 
@@ -103,13 +92,13 @@ let relatedPosts : RelatedPosts[] =
                 let indexOfInsertPoint = (BitOperations.TrailingZeroCount moveMask)
                 let shuffle = shuffles[indexOfInsertPoint]
 
+                // Insert new Post
+                top5TagCounts <- top5TagCounts.WithElement (6, int relatedPostTagCount)
+                top5PostIds <- top5PostIds.WithElement (6, relatedPostId)
+
                 // Shuffle the values down
                 top5TagCounts <- Vector256.Shuffle (top5TagCounts, shuffle)
                 top5PostIds <- Vector256.Shuffle (top5PostIds, shuffle)
-
-                // Insert new Post
-                top5TagCounts <- top5TagCounts.WithElement (indexOfInsertPoint, int relatedPostTagCount)
-                top5PostIds <- top5PostIds.WithElement (indexOfInsertPoint, relatedPostId)
 
                 minTagCount <- byte (top5TagCounts.GetElement 4)
 
