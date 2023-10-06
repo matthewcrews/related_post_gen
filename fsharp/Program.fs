@@ -57,13 +57,12 @@ for kv in tagPostsTmp do
 let topN = 5
 
 let shuffles = [|
-    Vector256.Create (6, 0, 1, 2, 3, 7, 7, 7)
-    Vector256.Create (0, 6, 1, 2, 3, 7, 7, 7)
-    Vector256.Create (0, 1, 6, 2, 3, 7, 7, 7)
-    Vector256.Create (0, 1, 2, 6, 3, 7, 7, 7)
-    Vector256.Create (0, 1, 2, 3, 6, 7, 7, 7)
+    Vector256.Create (5, 0, 1, 2, 3, 7, 7, 7)
+    Vector256.Create (0, 5, 1, 2, 3, 7, 7, 7)
+    Vector256.Create (0, 1, 5, 2, 3, 7, 7, 7)
+    Vector256.Create (0, 1, 2, 5, 3, 7, 7, 7)
+    Vector256.Create (0, 1, 2, 3, 5, 7, 7, 7)
 |]
-
 
 let allRelatedPosts : RelatedPosts[] =
     posts
@@ -87,14 +86,15 @@ let allRelatedPosts : RelatedPosts[] =
             if relatedPostTagCount > minTagCount then
 
                 let relatedPostTagCountVec = Vector256.Create (int relatedPostTagCount)
+
                 let comparison = Vector256.GreaterThan (relatedPostTagCountVec, top5TagCounts)
                 let moveMask = Vector256.ExtractMostSignificantBits comparison
                 let indexOfInsertPoint = (BitOperations.TrailingZeroCount moveMask)
                 let shuffle = shuffles[indexOfInsertPoint]
 
                 // Insert new Post
-                top5TagCounts <- top5TagCounts.WithElement (6, int relatedPostTagCount)
-                top5PostIds <- top5PostIds.WithElement (6, relatedPostId)
+                top5TagCounts <- top5TagCounts.WithElement (5, int relatedPostTagCount)
+                top5PostIds <- top5PostIds.WithElement (5, relatedPostId)
 
                 // Shuffle the values down
                 top5TagCounts <- Vector256.Shuffle (top5TagCounts, shuffle)
