@@ -73,8 +73,23 @@ let allRelatedPosts : RelatedPosts[] =
         let mutable top5PostIds = Vector256.Create 0
 
         for tagId in post.tags do
-            for relatedPostId in tagPosts[tagId] do
-                taggedPostCount[relatedPostId] <- taggedPostCount[relatedPostId] + 1uy
+            let relatedPostIds = tagPosts[tagId]
+            let mutable i = 0
+
+            while i + 3 < relatedPostIds.Length do
+                taggedPostCount[i  ] <- taggedPostCount[i  ] + 1uy
+                taggedPostCount[i+1] <- taggedPostCount[i+1] + 1uy
+                taggedPostCount[i+2] <- taggedPostCount[i+2] + 1uy
+                taggedPostCount[i+3] <- taggedPostCount[i+3] + 1uy
+                i <- i + 4
+
+            while i < relatedPostIds.Length do
+                taggedPostCount[i] <- taggedPostCount[i] + 1uy
+                i <- i + 1
+
+            //
+            // for relatedPostId in tagPosts[tagId] do
+            //     taggedPostCount[relatedPostId] <- taggedPostCount[relatedPostId] + 1uy
 
         taggedPostCount[postId] <- 0uy // ignore self
 
